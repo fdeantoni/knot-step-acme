@@ -1,0 +1,80 @@
+networks:
+  lab:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.0.0.0/24
+
+volumes:
+  knot-db:
+  step-data:
+
+services:
+  knot:
+    build:
+      context: ./knot
+    image: local/knot:latest
+    container_name: knot
+    restart: unless-stopped
+    networks:
+      lab:
+        ipv4_address: 10.0.0.10
+    ports:
+      - "9053:53/tcp"
+      - "9053:53/udp"
+    volumes:
+      - knot-db:/var/lib/knot
+    cap_add:
+      - NET_BIND_SERVICE
+    healthcheck:
+      # Healthy when it can answer SOA for "test."
+      test: ["CMD-SHELL", "dig @127.0.0.1 test SOA +time=1 +tries=1 +short | grep -q 'test.'"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Generates the password file inside the shared step-data volume (idempotent).
+  step-secrets:
+    image: alpine:latest
+    container_name: step-secrets
+    restart: "no"
+    command: >
+      sh -c "apk add --no-cache openssl &&
+             mkdir -p /home/step/secrets &&
+             [ -s /home/step/secrets/password ] ||
+             openssl rand -base64 32 > /home/step/secrets/password"
+    volumes:
+      - step-data:/home/step
+    networks:
+      - lab
+
+  step-ca:
+    build:
+      context: ./step-ca
+    image: local/step-ca:latest
+    container_name: step-ca
+    restart: unless-stopped
+    depends_on:
+      knot:
+        condition: service_healthy
+      step-secrets:
+        condition: service_completed_successfully
+    networks:
+      lab:
+        ipv4_address: 10.0.0.11
+    # Use Knot for DNS resolution; 'ca.test' will resolve via Knot
+    dns:
+      - 10.0.0.10
+    dns_search:
+      - test
+    volumes:
+      - step-data:/home/step
+    ports:
+      - "9000:9000"
+    user: "0:0"
+    healthcheck:
+      # Healthy when the roots bundle is served
+      test: ["CMD-SHELL", "curl -sk https://localhost:9000/roots.pem >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
