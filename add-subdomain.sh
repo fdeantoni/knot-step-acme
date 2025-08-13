@@ -5,7 +5,7 @@ KNOT_SERVER="127.0.0.1"
 KNOT_PORT="9053"
 
 # Initialize variables
-TSIG_KEY_FILE=""
+TSIG_KEY_FILE="./tsig.key"
 LAPTOP_IP=""
 CUSTOM_SUBDOMAIN=""
 
@@ -19,8 +19,8 @@ show_help() {
     echo "  -h, --help       Show this help message"
     echo ""
     echo "Examples:"
-    echo "  $0 -k /path/to/tsig.key"
-    echo "  $0 -k /path/to/tsig.key -s myapp"
+    echo "  $0 -s myapp"
+    echo "  $0 -i 192.168.1.100 -s myapp"
     echo "  $0 -k /path/to/tsig.key -i 192.168.1.100 -s myapp"
 }
 
@@ -66,16 +66,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Check if TSIG key file is provided
-if [ -z "$TSIG_KEY_FILE" ]; then
-    echo "Error: TSIG key file is required" >&2
-    show_help
-    exit 1
-fi
-
-# Check if TSIG key file exists
 if [ ! -f "$TSIG_KEY_FILE" ]; then
-    echo "Error: TSIG key file '$TSIG_KEY_FILE' not found" >&2
+    echo "Error: TSIG key file '$TSIG_KEY_FILE' not found. Use -k to specify a custom path." >&2
     exit 1
 fi
 
