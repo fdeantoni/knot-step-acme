@@ -20,8 +20,8 @@ services:
       lab:
         ipv4_address: 10.0.0.10
     ports:
-      - "9053:53/tcp"
-      - "9053:53/udp"
+      - "0.0.0.0:9053:53/tcp"
+      - "0.0.0.0:9053:53/udp"
     volumes:
       - knot-db:/var/lib/knot
     cap_add:
@@ -70,7 +70,7 @@ services:
     volumes:
       - step-data:/home/step
     ports:
-      - "9000:9000"
+      - "0.0.0.0:9000:9000"
     user: "0:0"
     healthcheck:
       # Healthy when the roots bundle is served

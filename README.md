@@ -28,6 +28,8 @@ This project sets up:
 
    ```bash
    docker-compose up -d
+   # or rebuild everything with:
+   # docker compose up --build --force-recreate -d
    ```
 
 2. **Wait for services to be healthy:**
@@ -57,8 +59,6 @@ This project sets up:
 
 **DNS Records:**
 
-- `test.` → `10.0.0.20` (apex domain)
-- `*.test.` → `10.0.0.20` (wildcard)
 - `ca.test.` → `10.0.0.11` (Step CA)
 - `ns1.test.` → `10.0.0.10` (DNS server)
 
@@ -76,20 +76,32 @@ This project sets up:
 
 ## Configuration
 
-### DNS Configuration
+### Default DNS Configuration
 
 The Knot DNS server is configured in [`knot/knot.conf`](knot/knot.conf) with:
 
 - Authority for `test.` domain
-- HMAC-SHA256 key for dynamic updates
+- HMAC-SHA256 key for dynamic updates automatically generated
 - Forwarding to upstream DNS (1.1.1.1, 9.9.9.9) for other domains
 
-### Step CA Configuration
+### Default Step CA Configuration
 
 - Automatically initialized on first run
 - ACME provisioner enabled
 - Certificate for `ca.test` domain
 - Remote management enabled
+
+### Enable Remote Access
+
+By default everything runs on its own Docker network with DNS mapped to 0.0.0.0:9053 and step-ca mapped to 0.0.0.0:9000 so these are accessble on the hosts LAN IP. However, to make Knot DNS return the correct LAN IP address when queried for `ca.test`, you will need to reconfigure the test.zone file. You can do this as follows:
+
+```bash
+# First extract the tsig.key from Knot
+./extract-tsig.sh
+
+# Now switch to using the LAN IP for ca.test
+./enable-remote.sh
+```
 
 ### Configuring K3D
 
@@ -99,7 +111,34 @@ If you will run your K3D cluster on the same machine, you can tell it to use the
 k3d cluster create my-cluster \
   --k3s-arg "--cluster-dns=10.0.0.10@server:*" \
   --k3s-arg "--cluster-domain=cluster.local@server:*" \
-  --network knot-step-acme_lab
+  --network knot-step-acme_lab \
+  --wait
+```
+
+If your K3D is running on another machine, you can instead tell K3D's CoreDNS to use your remote Knot instance instead. You can do so as follows:
+
+```bash
+# Create a config file pointing .test to your Knot instance
+DNS_SERVER="<LAN IP exposing remote Knot>"
+cat > coredns_custom.yaml <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns-custom
+  namespace: kube-system
+data:
+  test.server: |
+    test:53 {
+        errors
+        cache 30
+        forward . $DNS_SERVER
+    }
+EOF
+
+# Launch your K3D cluster with custom CoreDNS properties
+k3d cluster create my-cluster \
+  --volume ./coredns_custom.yaml:/var/lib/rancher/k3s/server/manifests/coredns-custom.yaml@server:0 \
+  --wait
 ```
 
 You can test if its working with the following:
@@ -112,9 +151,10 @@ kubectl run test-dns --image=alpine:latest --rm -it -- sh
 nslookup ca.test
 ```
 
-### Host Networking for LAN Access
 
-By default, this setup uses Docker's bridge networking for isolation. If you want to make the services accessible from your LAN (e.g., for use with Kubernetes clusters or other machines), you can switch to host networking.
+### Host Networking
+
+By default, this setup uses Docker's bridge networking for isolation which is generally the recommended method. If really want, though, you can switch to host networking.
 
 You can do so by setting `network_mode: host` in the docker-compose.yml file, e.g.:
 
@@ -167,13 +207,51 @@ sudo systemctl restart systemd-resolved
 
 ## Usage Examples
 
+### Add a subdomain to Knot DNS
+
+Use this to create a wildcard subdomain (*.your-sub.test) that points to your machine.
+
+1) Extract the TSIG key and CA root
+- Run [extract-tsig.sh](extract-tsig.sh). This writes [tsig.key](tsig.key) and [dev_root_ca.pem](dev_root_ca.pem).
+  ```bash
+  ./extract-tsig.sh
+  ```
+
+2) Trust the Step CA root on your host (so TLS to https://ca.test:9000 is trusted)
+- macOS:
+  ```bash
+  sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain dev_root_ca.pem
+  ```
+- Debian/Ubuntu:
+  ```bash
+  sudo cp dev_root_ca.pem /usr/local/share/ca-certificates/dev_root_ca.crt
+  sudo update-ca-certificates
+  ```
+- Windows (Administrator PowerShell):
+  ```powershell
+  certutil -addstore -f Root dev_root_ca.pem
+  ```
+
+3) Create the subdomain
+- Run [add-subdomain.sh](add-subdomain.sh). You can provide your IP and desired subdomain, or let the script auto-detect/generate them.
+  ```bash
+  ./add-subdomain.sh -k ./tsig.key -i <your-ip> -s <subdomain>
+  # Example:
+  ./add-subdomain.sh -k ./tsig.key -s myapp
+  ```
+  This creates: *.myapp.test → <your-ip> in Knot.
+
+4) Test
+  ```bash
+  dig @localhost -p 9053 app.<subdomain>.test A
+  ```
+
 ### Using with curl/ACME clients
 
-1. **Get the CA root certificate:**
+1. **Get the tsig.key and CA root certificate:**
 
    ```bash
-   mkdir certs
-   curl -sk https://localhost:9000/roots.pem > certs/ca.pem
+   ./extract-tsig.sh
    ```
 
 2. **Use with certbot:**
@@ -182,8 +260,8 @@ sudo systemctl restart systemd-resolved
     docker run --rm -it \
         --network knot-step-acme_lab \
         --dns 10.0.0.10 \
-        -v $(pwd)/certs:/etc/letsencrypt \
-        -e REQUESTS_CA_BUNDLE="/etc/letsencrypt/ca.pem" \
+        -v $(pwd)/dev_root_ca.pem:/etc/certs/dev_root_ca.pem \
+        -e REQUESTS_CA_BUNDLE="/etc/certs/dev_root_ca.pem" \
         certbot/certbot certonly \
         --manual \
         --server https://ca.test:9000/acme/acme/directory \
@@ -195,13 +273,9 @@ sudo systemctl restart systemd-resolved
 3. **Use nsupdate with TSIG key:**
 
     ```bash
-    # get the TSIG secret
-    TSIG=$(docker exec knot grep -A2 'id: "cm-key"' /etc/knot/knot.conf | grep secret | sed 's/.*secret: "\(.*\)".*/\1/')
-
     # Create nsupdate script
     cat > update.txt << EOF
     server localhost 9053
-    key hmac-sha256:cm-key $TSIG
     zone test.
     update add _acme-challenge.example.test. 60 IN TXT "your-acme-challenge-token"
     send
@@ -209,7 +283,7 @@ sudo systemctl restart systemd-resolved
     EOF
 
     # Apply the update
-    nsupdate update.txt
+    nsupdate -k ./tsig.key update.txt
 
     # Clean up
     rm update.txt    
