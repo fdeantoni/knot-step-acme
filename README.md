@@ -103,6 +103,61 @@ By default everything runs on its own Docker network with DNS mapped to 0.0.0.0:
 ./enable-remote.sh
 ```
 
+### Configure your desktop resolver for .test
+
+Point your workstation's DNS lookups for the .test domain to the Knot instance so host apps resolve ca.test and your subdomains.
+
+Decide the Knot address you’ll use:
+- If running locally via Docker: 127.0.0.1:9053
+- If using a remote host: <LAN-IP-of-host>:9053
+
+macOS (per-domain resolver):
+
+```bash
+sudo mkdir -p /etc/resolver
+sudo tee /etc/resolver/test >/dev/null <<EOF
+nameserver 127.0.0.1
+port 9053
+EOF
+# If Knot is on another machine, replace 127.0.0.1 with its LAN IP
+# Optional: flush DNS cache
+sudo killall -HUP mDNSResponder || true
+```
+
+Linux with systemd-resolved (global, per-domain):
+
+```bash
+sudo mkdir -p /etc/systemd/resolved.conf.d
+sudo tee /etc/systemd/resolved.conf.d/test.conf >/dev/null <<EOF
+[Resolve]
+DNS=127.0.0.1:9053
+Domains=~test
+EOF
+sudo systemctl restart systemd-resolved
+# If Knot is remote, use DNS=<LAN-IP>:9053 instead
+```
+
+Linux with systemd-resolved (ephemeral, on an interface):
+
+```bash
+IFACE=$(ip route show default | awk '{print $5; exit}')
+sudo resolvectl dns "$IFACE" 127.0.0.1:9053
+sudo resolvectl domain "$IFACE" ~test
+# Use your host LAN IP instead of 127.0.0.1 if remote
+```
+
+Verify:
+
+```bash
+dig +short ca.test A
+dig +short anything.test A
+```
+
+Remove/disable:
+- macOS: delete `/etc/resolver/test`
+- Linux (drop-in): `sudo rm /etc/systemd/resolved.conf.d/test.conf && sudo systemctl restart systemd-resolved`
+- Linux (ephemeral): `sudo resolvectl revert <iface>`
+
 ### Configuring K3D
 
 If you will run your K3D cluster on the same machine, you can tell it to use the knot and step-ca service:
@@ -185,25 +240,10 @@ ca    IN A   192.168.1.10    ; LAN IP where this will run
 Before starting, ensure ports 9000 and 9053 are available:
 
 ```bash
-# Check if port 9053 is in use
-sudo netstat -tulpn | grep :9053
+# Check if ports 9000 and 9053 are in use
+sudo netstat -tulpn | egrep ':(9000|9053)\b'
 ```
 
-Lastly, create a resolved config that will forward any queries to the test domain to your knot instance:
-
-```bash
-sudo mkdir -p /etc/systemd/resolved.conf.d
-sudo tee /etc/systemd/resolved.conf.d/test-domain.conf << EOF
-[Resolve]
-DNS=127.0.0.1:9053~test
-EOF
-```
-
-Now restart resolved:
-
-```bash
-sudo systemctl restart systemd-resolved
-```
 
 ## Usage Examples
 
