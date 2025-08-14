@@ -170,11 +170,11 @@ k3d cluster create my-cluster \
   --wait
 ```
 
-If your K3D is running on another machine, you can instead tell K3D's CoreDNS to use your remote Knot instance instead. You can do so as follows:
+If your K3D is running on another machine, you can instead tell K3D's CoreDNS to use your remote Knot instance on port 9053. You can do so as follows:
 
 ```bash
-# Create a config file pointing .test to your Knot instance
-DNS_SERVER="<LAN IP exposing remote Knot>"
+# Create a config file pointing .test to your Knot instance (non-standard DNS port 9053)
+DNS_SERVER="<LAN IP exposing remote Knot>:9053"
 cat > coredns_custom.yaml <<EOF
 apiVersion: v1
 kind: ConfigMap
@@ -206,6 +206,16 @@ kubectl run test-dns --image=alpine:latest --rm -it -- sh
 nslookup ca.test
 ```
 
+Most likely you will also want to use `cert-manager` to issue ACME certificates. If you do, take note that the default configuration has Knot exposed on port 9053. This means cert manager will need to be instructed not to use `/etc/resolv.conf` from the node. You can do so as follows when installing cert-manager via helm:
+
+```bash
+DNS_SERVER="<LAN IP exposing remote Knot>:9053"
+helm upgrade --install cert-manager jetstack/cert-manager \
+  -n cert-manager --create-namespace --set installCRDs=true \
+  --set 'extraArgs={--dns01-recursive-nameservers-only,--dns01-recursive-nameservers=$DNS_SERVER}'
+```
+
+See [Setting Nameservers for DNS01 Self Check](https://cert-manager.io/docs/configuration/acme/dns01/#setting-nameservers-for-dns01-self-check) for details about this.
 
 ### Host Networking
 
