@@ -217,6 +217,21 @@ helm upgrade --install cert-manager jetstack/cert-manager \
 
 See [Setting Nameservers for DNS01 Self Check](https://cert-manager.io/docs/configuration/acme/dns01/#setting-nameservers-for-dns01-self-check) for details about this.
 
+Alternatively, you can also add a mapping for Knot to listen on port 53 on your local LAN IP by editing the `docker-compose.yml` 
+
+```yaml
+services:
+  # ...
+  knot:
+    # ...
+    ports:
+      - "0.0.0.0:9053:53/tcp"
+      - "0.0.0.0:9053:53/udp"
+      - "192.168.1.10:53:53/tcp"
+      - "192.168.1.10:53:53/udp"      
+    # ...
+```
+
 ### Host Networking
 
 By default, this setup uses Docker's bridge networking for isolation which is generally the recommended method. If really want, though, you can switch to host networking.
