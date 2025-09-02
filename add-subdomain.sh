@@ -101,6 +101,49 @@ quit
 EOF
 }
 
+# Generates a yaml for distribution with the following content:
+#   acme:
+#     rootCa: |
+#       -----BEGIN CERTIFICATE-----
+#       ...
+#       -----END CERTIFICATE-----
+#     tsig:
+#       keyName: "cm-key"
+#       algorithm: "hmac-sha256"
+#       secret: "..."
+#   domain: "${CUSTOM_SUBDOMAIN}.${ZONE}"
+generate_yaml() {
+    local config_file="${CUSTOM_SUBDOMAIN}-config.yaml"
+    
+    # Extract TSIG key details from the key file
+    local key_name=$(grep -o 'key "[^"]*"' "$TSIG_KEY_FILE" | sed 's/key "\([^"]*\)"/\1/')
+    local key_secret=$(grep -o 'secret "[^"]*"' "$TSIG_KEY_FILE" | sed 's/secret "\([^"]*\)"/\1/')
+    
+    # Get root CA certificate
+    local root_ca=""
+    if curl -sk https://localhost:9000/roots.pem > /tmp/temp_root_ca.pem 2>/dev/null; then
+        root_ca=$(cat /tmp/temp_root_ca.pem)
+        rm -f /tmp/temp_root_ca.pem
+    else
+        echo "Warning: Could not retrieve root CA certificate from Step CA" >&2
+        return 1
+    fi
+    
+    # Generate YAML config file
+    cat > "$config_file" <<EOF
+acme:
+  rootCa: |
+$(echo "$root_ca" | sed 's/^/    /')
+  tsig:
+    keyName: "$key_name"
+    algorithm: "hmac-sha256"
+    secret: "$key_secret"
+domain: "${CUSTOM_SUBDOMAIN}.${ZONE}"
+EOF
+    
+    echo "📄 Generated developer config: $config_file"
+}
+
 # Get or validate IP address
 if [ -z "$LAPTOP_IP" ]; then
     LAPTOP_IP=$(get_laptop_ip)
@@ -164,6 +207,9 @@ if add_dns_record "$CUSTOM_SUBDOMAIN" "$LAPTOP_IP"; then
     echo "✅ Created new subdomain: ${CUSTOM_SUBDOMAIN}"
     echo "Your services are accessible at: *.${CUSTOM_SUBDOMAIN}.${ZONE}"
     echo "Test with: dig @${KNOT_SERVER} -p ${KNOT_PORT} app.${CUSTOM_SUBDOMAIN}.${ZONE}"
+    
+    # Generate developer configuration file
+    generate_yaml
 else
     echo "❌ Failed to create subdomain"
     exit 1

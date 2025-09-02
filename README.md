@@ -304,7 +304,10 @@ Use this to create a wildcard subdomain (*.your-sub.test) that points to your ma
   # Example:
   ./add-subdomain.sh -k ./tsig.key -s myapp
   ```
-  This creates: *.myapp.test → <your-ip> in Knot.
+  This creates: *.myapp.test → <your-ip> in Knot and generates a `myapp-config.yaml` file containing:
+  - Step CA root certificate
+  - TSIG key configuration for DNS updates
+  - Sub-domain that was configured
 
 4) Test
   ```bash

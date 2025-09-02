@@ -1,3 +1,4 @@
 .env
 tsig.key
 dev_root_ca.pem
+*-config.yaml
