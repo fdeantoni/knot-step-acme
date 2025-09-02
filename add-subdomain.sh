@@ -6,22 +6,22 @@ KNOT_PORT="9053"
 
 # Initialize variables
 TSIG_KEY_FILE="./tsig.key"
-LAPTOP_IP=""
+CUSTOM_IP=""
 CUSTOM_SUBDOMAIN=""
 
 # Function to show help
 show_help() {
-    echo "Usage: $0 -k <tsig-key-file> [-i laptop-ip] [-s subdomain]"
+    echo "Usage: $0 -i <your-ip> [-s <subdomain> -k <tsig-key-file>]"
     echo "Options:"
-    echo "  -k, --key        Path to TSIG key file (required)"
-    echo "  -i, --ip         Laptop IP address (optional, auto-detected if not provided)"
+    echo "  -i, --ip         IP address to use for the sub-domain (required)"
     echo "  -s, --subdomain  Custom subdomain name (optional, random generated if not provided)"
+    echo "  -k, --key        Path to TSIG key file (default to ./tsig.key)"
     echo "  -h, --help       Show this help message"
     echo ""
     echo "Examples:"
-    echo "  $0 -s myapp"
+    echo "  $0 -i 192.168.1.100"
     echo "  $0 -i 192.168.1.100 -s myapp"
-    echo "  $0 -k /path/to/tsig.key -i 192.168.1.100 -s myapp"
+    echo "  $0 -i 192.168.1.100 -s myapp -k /path/to/tsig.key"
 }
 
 # Parse command line arguments
@@ -42,7 +42,7 @@ while [[ $# -gt 0 ]]; do
                 show_help
                 exit 1
             fi
-            LAPTOP_IP="$2"
+            CUSTOM_IP="$2"
             shift 2
             ;;
         -s|--subdomain)
@@ -68,24 +68,21 @@ done
 
 if [ ! -f "$TSIG_KEY_FILE" ]; then
     echo "Error: TSIG key file '$TSIG_KEY_FILE' not found. Use -k to specify a custom path." >&2
+    show_help
     exit 1
 fi
 
-# Function to detect laptop IP across platforms
-get_laptop_ip() {
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        # macOS
-        ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null
-    elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        # Linux - try different methods
-        hostname -I | awk '{print $1}' 2>/dev/null || \
-        ip route get 1.1.1.1 | grep -oP 'src \K\S+' 2>/dev/null || \
-        ip addr show | grep 'inet ' | grep -v '127.0.0.1' | head -1 | awk '{print $2}' | cut -d/ -f1
-    else
-        echo "Unsupported OS" >&2
-        exit 1
-    fi
-}
+# Ensure we have an ip address
+if [ -z "$CUSTOM_IP" ]; then
+    echo "Error: IP address is required." >&2
+    show_help
+    exit 1
+fi
+
+# Generate subdomain if not provided
+if [ -z "$CUSTOM_SUBDOMAIN" ]; then
+    CUSTOM_SUBDOMAIN="dev-$(openssl rand -hex 3)"
+fi
 
 # Function to add DNS record using nsupdate
 add_dns_record() {
@@ -144,22 +141,6 @@ EOF
     echo "📄 Generated developer config: $config_file"
 }
 
-# Get or validate IP address
-if [ -z "$LAPTOP_IP" ]; then
-    LAPTOP_IP=$(get_laptop_ip)
-    if [ -z "$LAPTOP_IP" ]; then
-        echo "Could not auto-detect IP address. Please provide it with -i option." >&2
-        exit 1
-    fi
-    echo "Auto-detected IP: ${LAPTOP_IP}"
-else
-    echo "Using provided IP: ${LAPTOP_IP}"
-fi
-
-# Generate subdomain if not provided
-if [ -z "$CUSTOM_SUBDOMAIN" ]; then
-    CUSTOM_SUBDOMAIN="dev-$(openssl rand -hex 3)"
-fi
 
 echo "Checking zone configuration..."
 
@@ -178,7 +159,7 @@ if [ -n "$EXISTING_RECORD" ]; then
 fi
 
 # Step 2: Check if IP already has a subdomain
-EXISTING_SUBDOMAIN=$(awk -v ip="$LAPTOP_IP" '
+EXISTING_SUBDOMAIN=$(awk -v ip="$CUSTOM_IP" '
     /\*\..*[[:space:]]+A[[:space:]]+/ {
         if ($NF == ip) {
             print $1
@@ -191,8 +172,8 @@ if [ -n "$EXISTING_SUBDOMAIN" ]; then
     # Extract the subdomain part (remove the *. prefix and zone suffix)
     DEV_SUBDOMAIN="${EXISTING_SUBDOMAIN#*.}"
     DEV_SUBDOMAIN="${DEV_SUBDOMAIN%.${ZONE}}"
-    echo "IP ${LAPTOP_IP} already has subdomain: ${DEV_SUBDOMAIN}"
-    echo "Existing wildcard: *.${DEV_SUBDOMAIN}.${ZONE} -> ${LAPTOP_IP}"
+    echo "IP ${CUSTOM_IP} already has subdomain: ${DEV_SUBDOMAIN}"
+    echo "Existing wildcard: *.${DEV_SUBDOMAIN}.${ZONE} -> ${CUSTOM_IP}"
     rm -f "$ZONE_FILE"
     exit 0
 fi
@@ -201,11 +182,12 @@ fi
 rm -f "$ZONE_FILE"
 
 # Step 3: Create new subdomain
-echo "Creating new wildcard for ${CUSTOM_SUBDOMAIN}.${ZONE} -> ${LAPTOP_IP}"
+echo "Creating new wildcard for ${CUSTOM_SUBDOMAIN}.${ZONE} -> ${CUSTOM_IP}"
 
-if add_dns_record "$CUSTOM_SUBDOMAIN" "$LAPTOP_IP"; then
+if add_dns_record "$CUSTOM_SUBDOMAIN" "$CUSTOM_IP"; then
     echo "✅ Created new subdomain: ${CUSTOM_SUBDOMAIN}"
     echo "Your services are accessible at: *.${CUSTOM_SUBDOMAIN}.${ZONE}"
+    echo "Anything with *.${CUSTOM_SUBDOMAIN}.${ZONE} will resolve to ${CUSTOM_IP}"
     echo "Test with: dig @${KNOT_SERVER} -p ${KNOT_PORT} app.${CUSTOM_SUBDOMAIN}.${ZONE}"
     
     # Generate developer configuration file
