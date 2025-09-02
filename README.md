@@ -48,6 +48,19 @@ This project sets up:
    - ACME directory: `https://ca.test:9000/acme/acme/directory`
    - Root certificate: `https://ca.test:9000/roots.pem`
 
+5. **Extract TSIG and create subdomain**
+
+   ```bash
+    # First extract the tsig.key file and root certificate
+    ./extract-tsig.sh
+    # Optional: enable remote access to Step and Knot
+    ./enable-remote.sh
+    # Create a subdomain mydomain.test
+    ./add-subdomain.sh -k tsig.key -s mydomain
+    ```
+
+   You should now have a `mydomain-config.yaml` file with all the details to configure an ACME client that should interact with Knot. 
+
 ## Services
 
 ### Knot DNS (`knot`)
@@ -282,6 +295,31 @@ Use this to create a wildcard subdomain (*.your-sub.test) that points to your ma
   ./extract-tsig.sh
   ```
 
+2) Create the subdomain
+- Run [add-subdomain.sh](add-subdomain.sh). You can provide your IP and desired subdomain, or let the script auto-detect/generate them.
+  ```bash
+  ./add-subdomain.sh -k ./tsig.key -i <your-ip> -s <subdomain>
+  # Example:
+  ./add-subdomain.sh -k ./tsig.key -s myapp
+  ```
+  This creates: *.myapp.test → <your-ip> in Knot and generates a `myapp-config.yaml` file containing:
+  - Step CA root certificate
+  - TSIG key configuration for DNS updates
+  - Sub-domain that was configured
+
+3) Test
+  ```bash
+  dig @localhost -p 9053 app.<subdomain>.test A
+  ```
+
+### Using with curl/ACME clients
+
+1) Get the tsig.key and CA root certificate:
+
+   ```bash
+   ./extract-tsig.sh
+   ```
+
 2) Trust the Step CA root on your host (so TLS to https://ca.test:9000 is trusted)
 - macOS:
   ```bash
@@ -297,32 +335,7 @@ Use this to create a wildcard subdomain (*.your-sub.test) that points to your ma
   certutil -addstore -f Root dev_root_ca.pem
   ```
 
-3) Create the subdomain
-- Run [add-subdomain.sh](add-subdomain.sh). You can provide your IP and desired subdomain, or let the script auto-detect/generate them.
-  ```bash
-  ./add-subdomain.sh -k ./tsig.key -i <your-ip> -s <subdomain>
-  # Example:
-  ./add-subdomain.sh -k ./tsig.key -s myapp
-  ```
-  This creates: *.myapp.test → <your-ip> in Knot and generates a `myapp-config.yaml` file containing:
-  - Step CA root certificate
-  - TSIG key configuration for DNS updates
-  - Sub-domain that was configured
-
-4) Test
-  ```bash
-  dig @localhost -p 9053 app.<subdomain>.test A
-  ```
-
-### Using with curl/ACME clients
-
-1. **Get the tsig.key and CA root certificate:**
-
-   ```bash
-   ./extract-tsig.sh
-   ```
-
-2. **Use with certbot:**
+3. Use with certbot:
 
     ```bash
     docker run --rm -it \
@@ -338,7 +351,7 @@ Use this to create a wildcard subdomain (*.your-sub.test) that points to your ma
         -d "example.test"
     ```
 
-3. **Use nsupdate with TSIG key:**
+4. Use nsupdate with TSIG key:
 
     ```bash
     # Create nsupdate script
