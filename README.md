@@ -55,11 +55,18 @@ This project sets up:
     ./extract-tsig.sh
     # Optional: enable remote access to Step and Knot
     ./enable-remote.sh
-    # Create a subdomain mydomain.test
-    ./add-subdomain.sh -k tsig.key -s mydomain
+    # Create a wildcard subdomain *.mydomain.test entry
+    ./add-subdomain.sh -s mydomain -i <ip it should resolve to>
     ```
 
-   You should now have a `mydomain-config.yaml` file with all the details to configure an ACME client that should interact with Knot. 
+   You should now have a `mydomain-config.yaml` file with all the details to configure an ACME client that should interact with Knot, and Knot will now resolve any query for *.mydomain.test to the IP number you specified.
+
+6. **Test it out**
+
+    ```bash
+    dig @localhost -p 9053 +short ca.test A
+    dig @localhost -p 9053 +short apples.mydomain.test A
+    ```
 
 ## Services
 
