@@ -24,7 +24,40 @@ get_lan_ip() {
     fi
 }
 
-LAN_IP="${LAN_IP:=$(get_lan_ip)}"
+# Parse optional arguments. Accept -i|--ip to specify the LAN IP to use.
+IP_ARG=""
+while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+        -i|--ip)
+            if [[ -n "${2:-}" && "${2:0:1}" != "-" ]]; then
+                IP_ARG="$2"
+                shift 2
+            else
+                echo "Error: $1 requires an argument" >&2
+                exit 1
+            fi
+            ;;
+        -h|--help)
+            echo "Usage: $0 [-i IP|--ip IP]" >&2
+            exit 0
+            ;;
+        --) # end of options
+            shift
+            break
+            ;;
+        -*)
+            echo "Unknown option: $1" >&2
+            exit 1
+            ;;
+        *)
+            # no more options
+            break
+            ;;
+    esac
+done
+
+# Use provided IP if set, otherwise fall back to get_lan_ip()
+LAN_IP="${IP_ARG:-$(get_lan_ip)}"
 
 echo "Updating zone file to resolve ca.test and ns1.test to ${LAN_IP}..."
 

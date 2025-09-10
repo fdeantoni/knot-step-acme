@@ -106,7 +106,7 @@ The Knot DNS server is configured in [`knot/knot.conf`](knot/knot.conf) with:
 
 ### Enable Remote Access
 
-By default everything runs on its own Docker network with DNS mapped to 0.0.0.0:9053 and step-ca mapped to 0.0.0.0:9000 so these are accessble on the hosts LAN IP. However, to make Knot DNS return the correct LAN IP address when queried for `ca.test`, you will need to reconfigure the test.zone file. You can do this as follows:
+By default everything runs on its own Docker network with DNS mapped to 0.0.0.0:9053 and step-ca mapped to 0.0.0.0:9000 so these are accessble on the hosts LAN IP. However, to make Knot DNS return the correct LAN IP address when queried for `ca.test`, you will need to reconfigure the test.zone file to use the LAN IP for `ca.test`. You can do this as follows:
 
 ```bash
 # First extract the tsig.key from Knot
@@ -114,7 +114,18 @@ By default everything runs on its own Docker network with DNS mapped to 0.0.0.0:
 
 # Now switch to using the LAN IP for ca.test
 ./enable-remote.sh
+
+# Check if it worked correctly
+dig @localhost -p 9053 +short ca.test A
 ```
+
+The last command tests if Knot returns the right IP address when resolving `ca.test`. By default the `enable-remote.sh` script will try to detect your LAN IP and use that. If this detection fails, you can also provide the IP address that it should use for `ca.test`:
+
+```bash
+./enable-remote.sh --ip 192.168.1.10
+```
+
+This will then ensure that dns name `ca.test` will resolve to 192.168.1.10 
 
 ### Add a subdomain to Knot DNS
 
@@ -130,15 +141,13 @@ Use this to create a wildcard subdomain (*.your-sub.test) that points to your ma
 
 2) Create the subdomain
 
-    Run [add-subdomain.sh](add-subdomain.sh). You can provide your IP and desired subdomain, or let the script auto-detect/generate them.
+    Run [add-subdomain.sh](add-subdomain.sh). You can provide your IP and desired subdomain, or let the script auto-detect/generate them, e.g.:
 
     ```bash
-    ./add-subdomain.sh -k ./tsig.key -i <your-ip> -s <subdomain>
-    # Example:
-    ./add-subdomain.sh -k ./tsig.key -s myapp
+    ./add-subdomain.sh -i 192.168.1.50 -s myapp
     ```
 
-    This creates: *.myapp.test → <your-ip> in Knot and generates a `myapp-config.yaml` file containing:
+    This creates: *.myapp.test → 192.168.1.50 in Knot and generates a `myapp-config.yaml` file containing:
 
     - Step CA root certificate
     - TSIG key configuration for DNS updates
