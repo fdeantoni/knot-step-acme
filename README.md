@@ -116,15 +116,53 @@ By default everything runs on its own Docker network with DNS mapped to 0.0.0.0:
 ./enable-remote.sh
 ```
 
+### Add a subdomain to Knot DNS
+
+Use this to create a wildcard subdomain (*.your-sub.test) that points to your machine.
+
+1) Extract the TSIG key and CA root
+
+    Run [extract-tsig.sh](extract-tsig.sh). This writes [tsig.key](tsig.key) and [dev_root_ca.pem](dev_root_ca.pem).
+
+    ```bash
+    ./extract-tsig.sh
+    ```
+
+2) Create the subdomain
+
+    Run [add-subdomain.sh](add-subdomain.sh). You can provide your IP and desired subdomain, or let the script auto-detect/generate them.
+
+    ```bash
+    ./add-subdomain.sh -k ./tsig.key -i <your-ip> -s <subdomain>
+    # Example:
+    ./add-subdomain.sh -k ./tsig.key -s myapp
+    ```
+
+    This creates: *.myapp.test → <your-ip> in Knot and generates a `myapp-config.yaml` file containing:
+
+    - Step CA root certificate
+    - TSIG key configuration for DNS updates
+    - Sub-domain that was configured
+
+
+3) Test
+
+    ```bash
+    dig @localhost -p 9053 app.<subdomain>.test A
+    ```
+
 ### Configure your desktop resolver for .test
 
 Point your workstation's DNS lookups for the .test domain to the Knot instance so host apps resolve ca.test and your subdomains.
 
 Decide the Knot address you’ll use:
+
 - If running locally via Docker: 127.0.0.1:9053
 - If using a remote host: <LAN-IP-of-host>:9053
 
-macOS (per-domain resolver):
+Next, configure your resolver to use your knot-step-acme instance to resolve anything for the `*.test` domain:
+
+**OSX**:
 
 ```bash
 sudo mkdir -p /etc/resolver
@@ -132,12 +170,12 @@ sudo tee /etc/resolver/test >/dev/null <<EOF
 nameserver 127.0.0.1
 port 9053
 EOF
-# If Knot is on another machine, replace 127.0.0.1 with its LAN IP
+# If Knot is remote, replace 127.0.0.1 with its LAN IP
 # Optional: flush DNS cache
 sudo killall -HUP mDNSResponder || true
 ```
 
-Linux with systemd-resolved (global, per-domain):
+**Linux with systemd-resolved**:
 
 ```bash
 sudo mkdir -p /etc/systemd/resolved.conf.d
@@ -150,30 +188,65 @@ sudo systemctl restart systemd-resolved
 # If Knot is remote, use DNS=<LAN-IP>:9053 instead
 ```
 
-Linux with systemd-resolved (ephemeral, on an interface):
+For details about `resolved.conf` see the [man page](https://manpages.debian.org/bookworm/systemd-resolved/resolved.conf.5.en.html).
 
-```bash
-IFACE=$(ip route show default | awk '{print $5; exit}')
-sudo resolvectl dns "$IFACE" 127.0.0.1:9053
-sudo resolvectl domain "$IFACE" ~test
-# Use your host LAN IP instead of 127.0.0.1 if remote
+
+**DNSMasq**:
+
+If you like to use [dnsmasq](https://dnsmasq.org/doc.html), add the following entry to your dnsmasq.conf file:
+
+```conf
+# Knot Step Acme Server
+server=/test/127.0.0.1#9053
+# If Knot is remote, replace 127.0.0.1 with the <LAN-IP> of Knot instead
 ```
 
-Verify:
+It is also recommended to use DNSMasq if you cannot get your per-domain resolver to work correctly. In such a case configure DNSMasq as above, and add upstream servers pointing your actual dns servers:
 
-```bash
-dig +short ca.test A
-dig +short anything.test A
+```conf
+server=1.1.1.1
+server=1.0.0.1
+server=9.9.9.9
+no-resolv # Tells dnsmasq not use /etc/resolv.conf for upstream
 ```
 
-Remove/disable:
-- macOS: delete `/etc/resolver/test`
-- Linux (drop-in): `sudo rm /etc/systemd/resolved.conf.d/test.conf && sudo systemctl restart systemd-resolved`
-- Linux (ephemeral): `sudo resolvectl revert <iface>`
+DNSMasq will now send everything for *.test to the knot-step-acme instance, and everything else to the upstream dns servers you specified. Restart dnsmasq and configure your system resolver (e.g. `/etc/resolv.conf`) to use it instead. 
 
-### Configuring K3D
+**If all else Fails**:
 
-If you will run your K3D cluster on the same machine, you can tell it to use the knot and step-ca service:
+If the per-domain resolvers do not seem to work and using dnsmasq is not an option for you, as a last resort you can configure knot-step-acme `docker-compose.yaml` to also port-map your hosts port 53 to the container's port 9053. Assuming knot-step-acme is running on a machine with LAN IP 192.168.1.10, you can expose Knot DNS on port 53 as follows:
+
+```yaml
+services:
+  # ...
+  knot:
+    # ...
+    ports:
+      - "0.0.0.0:9053:53/tcp"
+      - "0.0.0.0:9053:53/udp"
+      - "192.168.1.10:53:53/tcp"
+      - "192.168.1.10:53:53/udp"      
+    # ...
+```
+
+Restart knot-step-acme:
+
+```bash
+docker compose restart
+```
+
+Now configure your machine to use knot-step-acme as your dns server, i.e. 192.168.1.10. Note that knot-step-acme is configured to use Cloudflare DNS (1.1.1.1) and Quad9 (9.9.9.9) as upstream, so any query it gets that is not for *.test will be forwarded to those upstream dns servers instead.
+
+**Verify**:
+
+```bash
+dig +short ca.test A # check if our Step CA can be resolved
+dig +short www.joindns4.eu # check if upstream is working
+```
+
+### Using K3D with knot-step-acme
+
+If you will run your K3D cluster on the same machine, you can tell it to use the same docker network as knot-step-acme:
 
 ```bash
 k3d cluster create my-cluster \
@@ -183,7 +256,7 @@ k3d cluster create my-cluster \
   --wait
 ```
 
-If your K3D is running on another machine, you can instead tell K3D's CoreDNS to use your remote Knot instance on port 9053. You can do so as follows:
+Anything running on K3D will now use the Knot Step Acme instance running on the docker network. If, however, your K3D is *not* running on the same docker network, you will need to configure K3D's CoreDNS instead. We will have to tell it to use your remote Knot instance on port 9053 to resolve anything with `*.test`, which you can do so as follows:
 
 ```bash
 # Create a config file pointing .test to your Knot instance (non-standard DNS port 9053)
@@ -219,7 +292,7 @@ kubectl run test-dns --image=alpine:latest --rm -it -- sh
 nslookup ca.test
 ```
 
-Most likely you will also want to use `cert-manager` to issue ACME certificates. If you do, take note that the default configuration has Knot exposed on port 9053. This means cert manager will need to be instructed not to use `/etc/resolv.conf` from the node. You can do so as follows when installing cert-manager via helm:
+Most likely you will also want to use `cert-manager` to issue ACME certificates. If you do, take note that the default configuration has Knot exposed on port 9053. This means cert manager will need to be instructed *not* to use `/etc/resolv.conf` from the node. You can do so as follows when installing cert-manager via helm:
 
 ```bash
 DNS_SERVER="<LAN IP exposing remote Knot>:9053"
@@ -245,7 +318,7 @@ services:
     # ...
 ```
 
-### Host Networking
+### If you really, really, want to use Host Networking
 
 By default, this setup uses Docker's bridge networking for isolation which is generally the recommended method. If really want, though, you can switch to host networking.
 
@@ -282,35 +355,14 @@ Before starting, ensure ports 9000 and 9053 are available:
 sudo netstat -tulpn | egrep ':(9000|9053)\b'
 ```
 
+If ports are available, you can go ahead and start up knot-step-acme:
+
+```bash
+docker compose up --build --force-recreate -d
+```
+
 
 ## Usage Examples
-
-### Add a subdomain to Knot DNS
-
-Use this to create a wildcard subdomain (*.your-sub.test) that points to your machine.
-
-1) Extract the TSIG key and CA root
-- Run [extract-tsig.sh](extract-tsig.sh). This writes [tsig.key](tsig.key) and [dev_root_ca.pem](dev_root_ca.pem).
-  ```bash
-  ./extract-tsig.sh
-  ```
-
-2) Create the subdomain
-- Run [add-subdomain.sh](add-subdomain.sh). You can provide your IP and desired subdomain, or let the script auto-detect/generate them.
-  ```bash
-  ./add-subdomain.sh -k ./tsig.key -i <your-ip> -s <subdomain>
-  # Example:
-  ./add-subdomain.sh -k ./tsig.key -s myapp
-  ```
-  This creates: *.myapp.test → <your-ip> in Knot and generates a `myapp-config.yaml` file containing:
-  - Step CA root certificate
-  - TSIG key configuration for DNS updates
-  - Sub-domain that was configured
-
-3) Test
-  ```bash
-  dig @localhost -p 9053 app.<subdomain>.test A
-  ```
 
 ### Using with curl/ACME clients
 
@@ -320,17 +372,23 @@ Use this to create a wildcard subdomain (*.your-sub.test) that points to your ma
    ./extract-tsig.sh
    ```
 
-2) Trust the Step CA root on your host (so TLS to https://ca.test:9000 is trusted)
+2) Trust the Step CA root on your host (so TLS to [https://ca.test:9000] is trusted)
+
 - macOS:
+
   ```bash
   sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain dev_root_ca.pem
   ```
+
 - Debian/Ubuntu:
+
   ```bash
   sudo cp dev_root_ca.pem /usr/local/share/ca-certificates/dev_root_ca.crt
   sudo update-ca-certificates
   ```
+
 - Windows (Administrator PowerShell):
+
   ```powershell
   certutil -addstore -f Root dev_root_ca.pem
   ```
