@@ -2,6 +2,29 @@
 
 A Docker Compose setup that provides a local DNS server (Knot DNS) with ACME certificate authority (Step CA) for development and testing.
 
+- [Overview](#overview)
+- [Quick Start](#quick-start)
+- [Services](#services)
+    - [Knot DNS (knot)](#knot-dns-knot)
+    - [Step CA (step-ca)](#step-ca-step-ca)
+    - [Step Secrets](#step-secrets-step-secrets)
+- [Configuration](#configuration)
+    - [Default Knot DNS Configuration](#default-knot-dns-configuration)
+    - [Default Step CA Configuration](#default-step-ca-configuration)
+    - [Enable Remote Resolution](#enable-remote-resolution)
+    - [Add a subdomain to Knot DNS](#add-a-subdomain-to-knot-dns)
+    - [Configure your desktop resolver for .test](#configure-your-desktop-resolver-for-test)
+- [Usage Examples](#usage-examples)
+    - [Using with curl/ACME clients](#using-with-curlacme-clients)
+    - [DNS Testing](#dns-testing)
+- [Volumes](#volumes)
+- [Network](#network)
+- [Health Checks](#health-checks)
+- [Troubleshooting](#troubleshooting)
+- [File Structure](#file-structure)
+- [Requirements](#requirements)
+- [Notes](#notes)
+
 ## Overview
 
 This project sets up:
@@ -96,7 +119,7 @@ This project sets up:
 
 ## Configuration
 
-### Default DNS Configuration
+### Default Knot DNS Configuration
 
 The Knot DNS server is configured in [`knot/knot.conf`](knot/knot.conf) with:
 
@@ -111,7 +134,7 @@ The Knot DNS server is configured in [`knot/knot.conf`](knot/knot.conf) with:
 - Certificate for `ca.test` domain
 - Remote management enabled
 
-### Enable Remote Access
+### Enable Remote Resolution
 
 By default everything runs on its own Docker network with DNS mapped to 0.0.0.0:9053 and step-ca mapped to 0.0.0.0:9000 so these are accessble on the hosts LAN IP. However, to make Knot DNS return the correct LAN IP address when queried for `ca.test`, you will need to reconfigure the test.zone file to use the LAN IP for `ca.test`. You can do this as follows:
 
