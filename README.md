@@ -159,7 +159,7 @@ This will then ensure that dns name `ca.test` will resolve to 192.168.1.10
 
 ### Add a subdomain to Knot DNS
 
-Use this to create a wildcard subdomain (*.your-sub.test) that points to your machine.
+Use this to create a wildcard subdomain (*.your-sub.test) that points to an IP number of your choice.
 
 1) Extract the TSIG key and CA root
 
@@ -171,7 +171,7 @@ Use this to create a wildcard subdomain (*.your-sub.test) that points to your ma
 
 2) Create the subdomain
 
-    Run [add-subdomain.sh](add-subdomain.sh). You can provide your IP and desired subdomain, or let the script auto-detect/generate them, e.g.:
+    Run [add-subdomain.sh](add-subdomain.sh). Provide a domain name and IP number that queries using this subdomain should resolve to e.g.:
 
     ```bash
     ./add-subdomain.sh -i 192.168.1.50 -s myapp
@@ -183,6 +183,7 @@ Use this to create a wildcard subdomain (*.your-sub.test) that points to your ma
     - TSIG key configuration for DNS updates
     - Sub-domain that was configured
 
+    Now any query such as `apples.myapp.test` will resolve to the IP address you specified.
 
 3) Test
 
@@ -192,7 +193,7 @@ Use this to create a wildcard subdomain (*.your-sub.test) that points to your ma
 
 ### Configure your desktop resolver for .test
 
-Point your workstation's DNS lookups for the .test domain to the Knot instance so host apps resolve ca.test and your subdomains.
+Point your workstation's resolver to resolve `ca.test`, and any subdomains you created, to your knot-step-acme instance.
 
 Decide the Knot address you’ll use:
 
