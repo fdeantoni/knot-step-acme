@@ -154,6 +154,16 @@ if [ -n "$EXISTING_RECORD" ]; then
     EXISTING_IP=$(echo "$EXISTING_RECORD" | awk '{print $NF}')
     echo "Subdomain '${CUSTOM_SUBDOMAIN}' already exists with IP: ${EXISTING_IP}"
     echo "Wildcard record: *.${CUSTOM_SUBDOMAIN}.${ZONE} -> ${EXISTING_IP}"
+
+    # Check if config YAML file exists, generate it if not
+    CONFIG_FILE="${CUSTOM_SUBDOMAIN}-config.yaml"
+    if [ ! -f "$CONFIG_FILE" ]; then
+        echo "Config file not found. Generating..."
+        generate_yaml
+    else
+        echo "Config file already exists: $CONFIG_FILE"
+    fi
+
     rm -f "$ZONE_FILE"
     exit 0
 fi
