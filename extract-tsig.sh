@@ -47,8 +47,8 @@ chmod 600 "${OUT_FILE}"
 echo "Wrote TSIG key to ${OUT_FILE}"
 echo "Use with nsupdate/add-subdomain.sh, e.g.: nsupdate -k ${OUT_FILE}"
 
-curl -sk https://localhost:9000/roots.pem > dev_root_ca.pem
+# Extract the entire CA certificate chain
+curl -sk https://localhost:9000/intermediates.pem > dev_root_ca.pem
+curl -sk https://localhost:9000/roots.pem >> dev_root_ca.pem
 
 echo "Wrote root CA certificate to dev_root_ca.pem"
-
-

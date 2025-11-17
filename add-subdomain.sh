@@ -136,13 +136,12 @@ generate_yaml() {
     local key_name=$(grep -o 'key "[^"]*"' "$TSIG_KEY_FILE" | sed 's/key "\([^"]*\)"/\1/')
     local key_secret=$(grep -o 'secret "[^"]*"' "$TSIG_KEY_FILE" | sed 's/secret "\([^"]*\)"/\1/')
 
-    # Get root CA certificate
+    # Get CA certificate chain from dev_root_ca.pem (created by extract-tsig.sh)
     local root_ca=""
-    if curl -sk https://localhost:9000/roots.pem > /tmp/temp_root_ca.pem 2>/dev/null; then
-        root_ca=$(cat /tmp/temp_root_ca.pem)
-        rm -f /tmp/temp_root_ca.pem
+    if [ -f "dev_root_ca.pem" ]; then
+        root_ca=$(cat dev_root_ca.pem)
     else
-        echo "Warning: Could not retrieve root CA certificate from Step CA" >&2
+        echo "Warning: dev_root_ca.pem not found. Run ./extract-tsig.sh first." >&2
         return 1
     fi
 
